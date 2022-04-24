@@ -37,19 +37,19 @@ async function run() {
     const packages = await getPackages();
 
     try {
-      await cleanRegistry(registryName, packages);
+      // await cleanRegistry(registryName, packages);
     } catch {}
 
     try {
-      await cleanBin();
+      // await cleanBin();
     } catch {}
 
     try {
-      await cleanGit(packages);
+      // await cleanGit(packages);
     } catch {}
 
     try {
-      await cleanTarget(packages);
+      // await cleanTarget(packages);
     } catch {}
 
     core.info(`Saving paths:\n    ${savePaths.join("\n    ")}`);

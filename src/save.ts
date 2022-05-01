@@ -123,33 +123,33 @@ async function cleanGit(packages: Packages) {
   // we have to keep both the clone, and the checkout, removing either will
   // trigger a rebuild
 
-  let dir: fs.Dir;
-  // clean the db
-  dir = await fs.promises.opendir(dbPath);
-  for await (const dirent of dir) {
-    if (!repos.has(dirent.name)) {
-      await rm(dir.path, dirent);
-    }
-  }
+  // let dir: fs.Dir;
+  // // clean the db
+  // dir = await fs.promises.opendir(dbPath);
+  // for await (const dirent of dir) {
+  //   if (!repos.has(dirent.name)) {
+  //     await rm(dir.path, dirent);
+  //   }
+  // }
 
-  // clean the checkouts
-  dir = await fs.promises.opendir(coPath);
-  for await (const dirent of dir) {
-    const refs = repos.get(dirent.name);
-    if (!refs) {
-      await rm(dir.path, dirent);
-      continue;
-    }
-    if (!dirent.isDirectory()) {
-      continue;
-    }
-    const refsDir = await fs.promises.opendir(path.join(dir.path, dirent.name));
-    for await (const dirent of refsDir) {
-      if (!refs.has(dirent.name)) {
-        await rm(refsDir.path, dirent);
-      }
-    }
-  }
+  // // clean the checkouts
+  // dir = await fs.promises.opendir(coPath);
+  // for await (const dirent of dir) {
+  //   const refs = repos.get(dirent.name);
+  //   if (!refs) {
+  //     await rm(dir.path, dirent);
+  //     continue;
+  //   }
+  //   if (!dirent.isDirectory()) {
+  //     continue;
+  //   }
+  //   const refsDir = await fs.promises.opendir(path.join(dir.path, dirent.name));
+  //   for await (const dirent of refsDir) {
+  //     if (!refs.has(dirent.name)) {
+  //       await rm(refsDir.path, dirent);
+  //     }
+  //   }
+  // }
 }
 
 async function macOsWorkaround() {

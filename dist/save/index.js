@@ -59724,22 +59724,6 @@ async function getCacheConfig() {
         lockHash = await getLockfileHash();
         lib_core.saveState(stateHash, lockHash);
     }
-    let key = `v0-rust-`;
-    const sharedKey = lib_core.getInput("sharedKey");
-    if (sharedKey) {
-        key += `${sharedKey}-`;
-    }
-    else {
-        const inputKey = lib_core.getInput("key");
-        if (inputKey) {
-            key += `${inputKey}-`;
-        }
-        const job = process.env.GITHUB_JOB;
-        if (job) {
-            key += `${job}-`;
-        }
-    }
-    key += await getRustKey();
     return {
         paths: [
             external_path_default().join(cargoHome, "bin"),
@@ -59750,13 +59734,13 @@ async function getCacheConfig() {
             common_paths.index,
             common_paths.target,
         ],
-        key: `${key}-${lockHash}`,
-        restoreKeys: [key],
+        key: lib_core.getInput("key"),
+        restoreKeys: getInputAsArray("restore-keys"),
     };
 }
 async function common_getCargoBins() {
     try {
-        const { installs } = JSON.parse(await fs.promises.readFile(path.join(common_paths.cargoHome, ".crates2.json"), "utf8"));
+        const { installs, } = JSON.parse(await fs.promises.readFile(path.join(common_paths.cargoHome, ".crates2.json"), "utf8"));
         const bins = new Set();
         for (const pkg of Object.values(installs)) {
             for (const bin of pkg.bins) {
@@ -59811,13 +59795,25 @@ async function getLockfileHash() {
 }
 async function getPackages() {
     const cwd = process.cwd();
-    const meta = JSON.parse(await getCmdOutput("cargo", ["metadata", "--all-features", "--format-version", "1"]));
-    return meta.packages
-        .filter((p) => !p.manifest_path.startsWith(cwd))
+    const meta = JSON.parse(await getCmdOutput("cargo", [
+        "metadata",
+        "--all-features",
+        "--format-version",
+        "1",
+    ]));
+    return (meta.packages
+        // .filter((p) => !p.manifest_path.startsWith(cwd))
         .map((p) => {
-        const targets = p.targets.filter((t) => t.kind[0] === "lib").map((t) => t.name);
-        return { name: p.name, version: p.version, targets, path: external_path_default().dirname(p.manifest_path) };
-    });
+        const targets = p.targets
+            .filter((t) => t.kind[0] === "lib")
+            .map((t) => t.name);
+        return {
+            name: p.name,
+            version: p.version,
+            targets,
+            path: external_path_default().dirname(p.manifest_path),
+        };
+    }));
 }
 async function cleanTarget(packages) {
     await fs.promises.unlink(path.join(targetDir, "./.rustc_info.json"));
@@ -59842,17 +59838,19 @@ async function cleanProfileTarget(packages, profile) {
         }
     }
     const keepPkg = new Set(packages.map((p) => p.name));
-    await rmExcept(path.join(targetDir, profile, "./build"), keepPkg);
-    await rmExcept(path.join(targetDir, profile, "./.fingerprint"), keepPkg);
-    const keepDeps = new Set(packages.flatMap((p) => {
-        const names = [];
-        for (const n of [p.name, ...p.targets]) {
-            const name = n.replace(/-/g, "_");
-            names.push(name, `lib${name}`);
-        }
-        return names;
-    }));
-    await rmExcept(path.join(targetDir, profile, "./deps"), keepDeps);
+    // await rmExcept(path.join(targetDir, profile, "./build"), keepPkg);
+    // await rmExcept(path.join(targetDir, profile, "./.fingerprint"), keepPkg);
+    // const keepDeps = new Set(
+    //   packages.flatMap((p) => {
+    //     const names = [];
+    //     for (const n of [p.name, ...p.targets]) {
+    //       const name = n.replace(/-/g, "_");
+    //       names.push(name, `lib${name}`);
+    //     }
+    //     return names;
+    //   })
+    // );
+    // await rmExcept(path.join(targetDir, profile, "./deps"), keepDeps);
 }
 const oneWeek = (/* unused pure expression or super */ null && (7 * 24 * 3600 * 1000));
 async function rmExcept(dirName, keepPrefix) {
@@ -59883,6 +59881,12 @@ async function common_rm(parent, dirent) {
         }
     }
     catch { }
+}
+function getInputAsArray(name, options) {
+    return lib_core.getInput(name, options)
+        .split("\n")
+        .map((s) => s.trim())
+        .filter((x) => x !== "");
 }
 
 ;// CONCATENATED MODULE: ./src/save.ts
@@ -59985,32 +59989,32 @@ async function cleanGit(packages) {
     }
     // we have to keep both the clone, and the checkout, removing either will
     // trigger a rebuild
-    let dir;
-    // clean the db
-    dir = await fs.promises.opendir(dbPath);
-    for await (const dirent of dir) {
-        if (!repos.has(dirent.name)) {
-            await rm(dir.path, dirent);
-        }
-    }
-    // clean the checkouts
-    dir = await fs.promises.opendir(coPath);
-    for await (const dirent of dir) {
-        const refs = repos.get(dirent.name);
-        if (!refs) {
-            await rm(dir.path, dirent);
-            continue;
-        }
-        if (!dirent.isDirectory()) {
-            continue;
-        }
-        const refsDir = await fs.promises.opendir(path.join(dir.path, dirent.name));
-        for await (const dirent of refsDir) {
-            if (!refs.has(dirent.name)) {
-                await rm(refsDir.path, dirent);
-            }
-        }
-    }
+    // let dir: fs.Dir;
+    // // clean the db
+    // dir = await fs.promises.opendir(dbPath);
+    // for await (const dirent of dir) {
+    //   if (!repos.has(dirent.name)) {
+    //     await rm(dir.path, dirent);
+    //   }
+    // }
+    // // clean the checkouts
+    // dir = await fs.promises.opendir(coPath);
+    // for await (const dirent of dir) {
+    //   const refs = repos.get(dirent.name);
+    //   if (!refs) {
+    //     await rm(dir.path, dirent);
+    //     continue;
+    //   }
+    //   if (!dirent.isDirectory()) {
+    //     continue;
+    //   }
+    //   const refsDir = await fs.promises.opendir(path.join(dir.path, dirent.name));
+    //   for await (const dirent of refsDir) {
+    //     if (!refs.has(dirent.name)) {
+    //       await rm(refsDir.path, dirent);
+    //     }
+    //   }
+    // }
 }
 async function macOsWorkaround() {
     try {

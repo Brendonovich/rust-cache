@@ -54,25 +54,6 @@ export async function getCacheConfig(): Promise<CacheConfig> {
     core.saveState(stateHash, lockHash);
   }
 
-  let key = `v0-rust-`;
-
-  const sharedKey = core.getInput("sharedKey");
-  if (sharedKey) {
-    key += `${sharedKey}-`;
-  } else {
-    const inputKey = core.getInput("key");
-    if (inputKey) {
-      key += `${inputKey}-`;
-    }
-
-    const job = process.env.GITHUB_JOB;
-    if (job) {
-      key += `${job}-`;
-    }
-  }
-
-  key += await getRustKey();
-
   return {
     paths: [
       path.join(cargoHome, "bin"),
@@ -83,15 +64,20 @@ export async function getCacheConfig(): Promise<CacheConfig> {
       paths.index,
       paths.target,
     ],
-    key: `${key}-${lockHash}`,
-    restoreKeys: [key],
+    key: core.getInput("key"),
+    restoreKeys: getInputAsArray("restore-keys"),
   };
 }
 
 export async function getCargoBins(): Promise<Set<string>> {
   try {
-    const { installs }: { installs: { [key: string]: { bins: Array<string> } } } = JSON.parse(
-      await fs.promises.readFile(path.join(paths.cargoHome, ".crates2.json"), "utf8"),
+    const {
+      installs,
+    }: { installs: { [key: string]: { bins: Array<string> } } } = JSON.parse(
+      await fs.promises.readFile(
+        path.join(paths.cargoHome, ".crates2.json"),
+        "utf8"
+      )
     );
     const bins = new Set<string>();
     for (const pkg of Object.values(installs)) {
@@ -129,7 +115,7 @@ async function getRustVersion(): Promise<RustVersion> {
 export async function getCmdOutput(
   cmd: string,
   args: Array<string> = [],
-  options: exec.ExecOptions = {},
+  options: exec.ExecOptions = {}
 ): Promise<string> {
   let stdout = "";
   await exec.exec(cmd, args, {
@@ -145,9 +131,12 @@ export async function getCmdOutput(
 }
 
 async function getLockfileHash(): Promise<string> {
-  const globber = await glob.create("**/Cargo.toml\n**/Cargo.lock\nrust-toolchain\nrust-toolchain.toml", {
-    followSymbolicLinks: false,
-  });
+  const globber = await glob.create(
+    "**/Cargo.toml\n**/Cargo.lock\nrust-toolchain\nrust-toolchain.toml",
+    {
+      followSymbolicLinks: false,
+    }
+  );
   const files = await globber.glob();
   files.sort((a, b) => a.localeCompare(b));
 
@@ -180,14 +169,30 @@ interface Meta {
 
 export async function getPackages(): Promise<Packages> {
   const cwd = process.cwd();
-  const meta: Meta = JSON.parse(await getCmdOutput("cargo", ["metadata", "--all-features", "--format-version", "1"]));
+  const meta: Meta = JSON.parse(
+    await getCmdOutput("cargo", [
+      "metadata",
+      "--all-features",
+      "--format-version",
+      "1",
+    ])
+  );
 
-  return meta.packages
-    .filter((p) => !p.manifest_path.startsWith(cwd))
-    .map((p) => {
-      const targets = p.targets.filter((t) => t.kind[0] === "lib").map((t) => t.name);
-      return { name: p.name, version: p.version, targets, path: path.dirname(p.manifest_path) };
-    });
+  return (
+    meta.packages
+      // .filter((p) => !p.manifest_path.startsWith(cwd))
+      .map((p) => {
+        const targets = p.targets
+          .filter((t) => t.kind[0] === "lib")
+          .map((t) => t.name);
+        return {
+          name: p.name,
+          version: p.version,
+          targets,
+          path: path.dirname(p.manifest_path),
+        };
+      })
+  );
 }
 
 export async function cleanTarget(packages: Packages) {
@@ -217,20 +222,20 @@ async function cleanProfileTarget(packages: Packages, profile: string) {
   }
 
   const keepPkg = new Set(packages.map((p) => p.name));
-  await rmExcept(path.join(targetDir, profile, "./build"), keepPkg);
-  await rmExcept(path.join(targetDir, profile, "./.fingerprint"), keepPkg);
+  // await rmExcept(path.join(targetDir, profile, "./build"), keepPkg);
+  // await rmExcept(path.join(targetDir, profile, "./.fingerprint"), keepPkg);
 
-  const keepDeps = new Set(
-    packages.flatMap((p) => {
-      const names = [];
-      for (const n of [p.name, ...p.targets]) {
-        const name = n.replace(/-/g, "_");
-        names.push(name, `lib${name}`);
-      }
-      return names;
-    }),
-  );
-  await rmExcept(path.join(targetDir, profile, "./deps"), keepDeps);
+  // const keepDeps = new Set(
+  //   packages.flatMap((p) => {
+  //     const names = [];
+  //     for (const n of [p.name, ...p.targets]) {
+  //       const name = n.replace(/-/g, "_");
+  //       names.push(name, `lib${name}`);
+  //     }
+  //     return names;
+  //   })
+  // );
+  // await rmExcept(path.join(targetDir, profile, "./deps"), keepDeps);
 }
 
 const oneWeek = 7 * 24 * 3600 * 1000;
@@ -262,4 +267,15 @@ export async function rm(parent: string, dirent: fs.Dirent) {
       await io.rmRF(fileName);
     }
   } catch {}
+}
+
+export function getInputAsArray(
+  name: string,
+  options?: core.InputOptions
+): string[] {
+  return core
+    .getInput(name, options)
+    .split("\n")
+    .map((s) => s.trim())
+    .filter((x) => x !== "");
 }

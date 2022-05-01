@@ -59724,22 +59724,6 @@ async function getCacheConfig() {
         lockHash = await getLockfileHash();
         core.saveState(stateHash, lockHash);
     }
-    let key = `v0-rust-`;
-    const sharedKey = core.getInput("sharedKey");
-    if (sharedKey) {
-        key += `${sharedKey}-`;
-    }
-    else {
-        const inputKey = core.getInput("key");
-        if (inputKey) {
-            key += `${inputKey}-`;
-        }
-        const job = process.env.GITHUB_JOB;
-        if (job) {
-            key += `${job}-`;
-        }
-    }
-    key += await getRustKey();
     return {
         paths: [
             external_path_default().join(cargoHome, "bin"),
@@ -59750,13 +59734,13 @@ async function getCacheConfig() {
             paths.index,
             paths.target,
         ],
-        key: `${key}-${lockHash}`,
-        restoreKeys: [key],
+        key: core.getInput("key"),
+        restoreKeys: getInputAsArray("restore-keys"),
     };
 }
 async function getCargoBins() {
     try {
-        const { installs } = JSON.parse(await external_fs_default().promises.readFile(external_path_default().join(paths.cargoHome, ".crates2.json"), "utf8"));
+        const { installs, } = JSON.parse(await external_fs_default().promises.readFile(external_path_default().join(paths.cargoHome, ".crates2.json"), "utf8"));
         const bins = new Set();
         for (const pkg of Object.values(installs)) {
             for (const bin of pkg.bins) {
@@ -59811,13 +59795,25 @@ async function getLockfileHash() {
 }
 async function getPackages() {
     const cwd = process.cwd();
-    const meta = JSON.parse(await getCmdOutput("cargo", ["metadata", "--all-features", "--format-version", "1"]));
-    return meta.packages
-        .filter((p) => !p.manifest_path.startsWith(cwd))
+    const meta = JSON.parse(await getCmdOutput("cargo", [
+        "metadata",
+        "--all-features",
+        "--format-version",
+        "1",
+    ]));
+    return (meta.packages
+        // .filter((p) => !p.manifest_path.startsWith(cwd))
         .map((p) => {
-        const targets = p.targets.filter((t) => t.kind[0] === "lib").map((t) => t.name);
-        return { name: p.name, version: p.version, targets, path: external_path_default().dirname(p.manifest_path) };
-    });
+        const targets = p.targets
+            .filter((t) => t.kind[0] === "lib")
+            .map((t) => t.name);
+        return {
+            name: p.name,
+            version: p.version,
+            targets,
+            path: external_path_default().dirname(p.manifest_path),
+        };
+    }));
 }
 async function cleanTarget(packages) {
     await external_fs_default().promises.unlink(external_path_default().join(targetDir, "./.rustc_info.json"));
@@ -59842,29 +59838,31 @@ async function cleanProfileTarget(packages, profile) {
         }
     }
     const keepPkg = new Set(packages.map((p) => p.name));
-    await rmExcept(external_path_default().join(targetDir, profile, "./build"), keepPkg);
-    await rmExcept(external_path_default().join(targetDir, profile, "./.fingerprint"), keepPkg);
-    const keepDeps = new Set(packages.flatMap((p) => {
-        const names = [];
-        for (const n of [p.name, ...p.targets]) {
-            const name = n.replace(/-/g, "_");
-            names.push(name, `lib${name}`);
-        }
-        return names;
-    }));
-    await rmExcept(external_path_default().join(targetDir, profile, "./deps"), keepDeps);
+    // await rmExcept(path.join(targetDir, profile, "./build"), keepPkg);
+    // await rmExcept(path.join(targetDir, profile, "./.fingerprint"), keepPkg);
+    // const keepDeps = new Set(
+    //   packages.flatMap((p) => {
+    //     const names = [];
+    //     for (const n of [p.name, ...p.targets]) {
+    //       const name = n.replace(/-/g, "_");
+    //       names.push(name, `lib${name}`);
+    //     }
+    //     return names;
+    //   })
+    // );
+    // await rmExcept(path.join(targetDir, profile, "./deps"), keepDeps);
 }
-const oneWeek = 7 * 24 * 3600 * 1000;
+const oneWeek = (/* unused pure expression or super */ null && (7 * 24 * 3600 * 1000));
 async function rmExcept(dirName, keepPrefix) {
-    const dir = await external_fs_default().promises.opendir(dirName);
+    const dir = await fs.promises.opendir(dirName);
     for await (const dirent of dir) {
         let name = dirent.name;
         const idx = name.lastIndexOf("-");
         if (idx !== -1) {
             name = name.slice(0, idx);
         }
-        const fileName = external_path_default().join(dir.path, dirent.name);
-        const { mtime } = await external_fs_default().promises.stat(fileName);
+        const fileName = path.join(dir.path, dirent.name);
+        const { mtime } = await fs.promises.stat(fileName);
         // we don’t really know
         if (!keepPrefix.has(name) || Date.now() - mtime.getTime() > oneWeek) {
             await rm(dir.path, dirent);
@@ -59884,6 +59882,12 @@ async function rm(parent, dirent) {
     }
     catch { }
 }
+function getInputAsArray(name, options) {
+    return core.getInput(name, options)
+        .split("\n")
+        .map((s) => s.trim())
+        .filter((x) => x !== "");
+}
 
 ;// CONCATENATED MODULE: ./src/restore.ts
 
@@ -59900,7 +59904,7 @@ async function run() {
             cacheOnFailure = "false";
         }
         core.exportVariable("CACHE_ON_FAILURE", cacheOnFailure);
-        core.exportVariable("CARGO_INCREMENTAL", 0);
+        core.exportVariable("CARGO_INCREMENTAL", 1);
         const { paths, key, restoreKeys } = await getCacheConfig();
         const bins = await getCargoBins();
         core.saveState(stateBins, JSON.stringify([...bins]));
